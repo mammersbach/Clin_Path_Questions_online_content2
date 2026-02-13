@@ -943,11 +943,13 @@
                             answersText += `Question ${questionNum}:\n`;
                             answersText += `Reference: ${reference}\n`;
                             if (refUrl) answersText += `${refLabel}: ${refUrl}\n`;
+                            if (mcq.debug_info) answersText += `Debug: ${mcq.debug_info}\n`;
                             answersText += '\n' + answerPart + '\n\n';
 
                             answersHtml += `Question ${questionNum}:\n`;
                             answersHtml += `Reference: ${reference}\n`;
                             if (refUrl) answersHtml += `${refLabel}: <a href="${refUrl}" target="_blank" style="color: #2c5282;">${refUrl}</a>\n`;
+                            if (mcq.debug_info) answersHtml += `<span style="color: #d69e2e; font-size: 0.9em;">🔍 Debug: ${mcq.debug_info}</span>\n`;
                             answersHtml += '\n' + answerPart + '\n\n';
                         } else {
                             const cleanQuestion = fullText.replace(/^\d+\.\s*/, '').replace(/^QUESTION \d+:?\s*/i, '');

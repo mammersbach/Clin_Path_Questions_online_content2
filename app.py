@@ -735,7 +735,9 @@ def generate_mcq_from_atlas(category_name, subcategory_name, gallery_url, num_qu
 
     if not image_urls:
         # Fallback: generate text-based question describing what would be seen
-        return generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+        result = generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+        result['debug_info'] = f"No images found on page: {gallery_url}"
+        return result
 
     # Select a random image
     selected_image_url = random.choice(image_urls)
@@ -743,7 +745,9 @@ def generate_mcq_from_atlas(category_name, subcategory_name, gallery_url, num_qu
 
     if not image_data:
         # Fallback if image fetch fails
-        return generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+        result = generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+        result['debug_info'] = f"Found {len(image_urls)} images but failed to fetch: {selected_image_url}"
+        return result
 
     try:
         import anthropic
@@ -811,7 +815,8 @@ Now analyze the image and generate {num_questions} question(s):"""
             "questions": message.content[0].text,
             "has_image": True,
             "image_url": selected_image_url,
-            "image_base64": f"data:{image_data['media_type']};base64,{image_data['base64']}"
+            "image_base64": f"data:{image_data['media_type']};base64,{image_data['base64']}",
+            "debug_info": f"Successfully fetched image from {len(image_urls)} available images"
         }
 
     except Exception as e:

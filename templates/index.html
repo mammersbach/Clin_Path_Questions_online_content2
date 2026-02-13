@@ -545,7 +545,7 @@
     <div class="container">
         <header>
             <h1>Vet Clin Path MCQ Generator</h1>
-            <p>Generate board-style questions from PubMed journals, eClinPath topics, and Atlas images</p>
+            <p>Generate board-style questions from Veterinary Clinical Pathology journal articles, eClinPath topics, and Atlas images</p>
             <p style="font-size: 0.85rem; margin-top: 8px; opacity: 0.8;">Melanie Ammersbach, DVM, DACVP</p>
         </header>
 
@@ -555,7 +555,7 @@
             <!-- Articles Section -->
             <div class="card">
                 <div class="source-tabs">
-                    <div class="source-tab active" onclick="switchSource('pubmed')">PubMed</div>
+                    <div class="source-tab active" onclick="switchSource('pubmed')">VCP Articles</div>
                     <div class="source-tab" onclick="switchSource('eclinpath')">eClinPath</div>
                     <div class="source-tab" onclick="switchSource('atlas')">Atlas (Images)</div>
                 </div>
@@ -579,7 +579,7 @@
                     </div>
                     <div class="loading" id="articles-loading">
                         <div class="spinner"></div>
-                        <p>Fetching articles from PubMed...</p>
+                        <p>Fetching articles from Veterinary Clinical Pathology journal...</p>
                     </div>
                     <div class="articles-list" id="articles-list">
                         <div class="empty-state">
@@ -1038,8 +1038,17 @@
 
                     for (const [category, info] of Object.entries(eclinpathTopics)) {
                         const categoryId = category.replace(/[^a-zA-Z0-9]/g, '-');
+
+                        // Check if all subtopics in this category are selected
+                        const allSubtopics = Object.entries(info.subtopics);
+                        const selectedCount = allSubtopics.filter(([subtopic, url]) =>
+                            selectedEclinpathTopics.some(t => t.category === category && t.subtopic === subtopic)
+                        ).length;
+                        const isCategorySelected = selectedCount === allSubtopics.length && allSubtopics.length > 0;
+
                         html += `<div class="topic-category">`;
-                        html += `<div class="topic-category-header" onclick="toggleCategory('${categoryId}', this)">`;
+                        html += `<div class="topic-category-header" onclick="toggleCategory('${categoryId}', this, event)">`;
+                        html += `<input type="checkbox" ${isCategorySelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleEntireCategory('${category.replace(/'/g, "\\'")}', this)" style="margin-right: 8px;">`;
                         html += `<span class="arrow">&#9654;</span> ${category}`;
                         html += `</div>`;
                         html += `<div class="topic-subtopics" id="subtopics-${categoryId}">`;
@@ -1064,11 +1073,39 @@
             }
         }
 
-        function toggleCategory(categoryId, headerEl) {
+        function toggleCategory(categoryId, headerEl, event) {
+            // Don't toggle if clicking on checkbox
+            if (event && event.target.type === 'checkbox') {
+                return;
+            }
             const subtopicsEl = document.getElementById('subtopics-' + categoryId);
             const isExpanded = subtopicsEl.classList.contains('expanded');
             subtopicsEl.classList.toggle('expanded');
             headerEl.classList.toggle('expanded');
+        }
+
+        function toggleEntireCategory(category, checkboxEl) {
+            const info = eclinpathTopics[category];
+            if (!info) return;
+
+            const isChecked = checkboxEl.checked;
+
+            if (isChecked) {
+                // Add all subtopics from this category
+                for (const [subtopic, url] of Object.entries(info.subtopics)) {
+                    const exists = selectedEclinpathTopics.some(t => t.category === category && t.subtopic === subtopic);
+                    if (!exists) {
+                        selectedEclinpathTopics.push({ category, subtopic, url });
+                    }
+                }
+            } else {
+                // Remove all subtopics from this category
+                selectedEclinpathTopics = selectedEclinpathTopics.filter(t => t.category !== category);
+            }
+
+            // Re-render to update checkboxes
+            loadEclinpathTopics();
+            document.getElementById('eclinpath-selected-count').textContent = selectedEclinpathTopics.length;
         }
 
         function toggleTopic(category, subtopic, url, element) {
@@ -1116,8 +1153,17 @@
 
                     for (const [category, subcategories] of Object.entries(atlasCategories)) {
                         const categoryId = category.replace(/[^a-zA-Z0-9]/g, '-');
+
+                        // Check if all subcategories in this category are selected
+                        const allSubcategories = Object.entries(subcategories);
+                        const selectedCount = allSubcategories.filter(([subcategory, url]) =>
+                            selectedAtlasCategories.some(c => c.category === category && c.subcategory === subcategory)
+                        ).length;
+                        const isCategorySelected = selectedCount === allSubcategories.length && allSubcategories.length > 0;
+
                         html += `<div class="topic-category">`;
-                        html += `<div class="topic-category-header" onclick="toggleAtlasCategory('${categoryId}', this)">`;
+                        html += `<div class="topic-category-header" onclick="toggleAtlasCategory('${categoryId}', this, event)">`;
+                        html += `<input type="checkbox" ${isCategorySelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleEntireAtlasCategory('${category.replace(/'/g, "\\'")}', this)" style="margin-right: 8px;">`;
                         html += `<span class="arrow">&#9654;</span> ${category}`;
                         html += `</div>`;
                         html += `<div class="topic-subtopics" id="atlas-${categoryId}">`;
@@ -1141,11 +1187,39 @@
             }
         }
 
-        function toggleAtlasCategory(categoryId, headerEl) {
+        function toggleAtlasCategory(categoryId, headerEl, event) {
+            // Don't toggle if clicking on checkbox
+            if (event && event.target.type === 'checkbox') {
+                return;
+            }
             const subtopicsEl = document.getElementById('atlas-' + categoryId);
             const isExpanded = subtopicsEl.classList.contains('expanded');
             subtopicsEl.classList.toggle('expanded');
             headerEl.classList.toggle('expanded');
+        }
+
+        function toggleEntireAtlasCategory(category, checkboxEl) {
+            const subcategories = atlasCategories[category];
+            if (!subcategories) return;
+
+            const isChecked = checkboxEl.checked;
+
+            if (isChecked) {
+                // Add all subcategories from this category
+                for (const [subcategory, url] of Object.entries(subcategories)) {
+                    const exists = selectedAtlasCategories.some(c => c.category === category && c.subcategory === subcategory);
+                    if (!exists) {
+                        selectedAtlasCategories.push({ category, subcategory, url });
+                    }
+                }
+            } else {
+                // Remove all subcategories from this category
+                selectedAtlasCategories = selectedAtlasCategories.filter(c => c.category !== category);
+            }
+
+            // Re-render to update checkboxes
+            loadAtlasCategories();
+            document.getElementById('atlas-selected-count').textContent = selectedAtlasCategories.length;
         }
 
         function toggleAtlasItem(category, subcategory, url, element) {

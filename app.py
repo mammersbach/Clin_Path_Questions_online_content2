@@ -620,8 +620,23 @@ def fetch_atlas_page(url):
             'Upgrade-Insecure-Requests': '1',
         }
 
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
+        # Add retry logic with delays to avoid rate limiting
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    time.sleep(2 * attempt)  # Progressive delay: 2s, 4s
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                break
+            except requests.exceptions.HTTPError as e:
+                if attempt == max_retries - 1:
+                    raise  # Re-raise on final attempt
+                if response.status_code == 403:
+                    print(f"403 Forbidden on attempt {attempt+1}, retrying...")
+                    continue
+                raise
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -668,11 +683,15 @@ def fetch_atlas_page(url):
                 unique_urls.append(url)
 
         print(f"Found {len(unique_urls)} images on {url}")
-        return unique_urls
+        return {'urls': unique_urls, 'error': None}
 
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP {e.response.status_code}" if hasattr(e, 'response') and e.response else str(e)
+        print(f"Error fetching Atlas page {url}: {error_msg}")
+        return {'urls': [], 'error': error_msg}
     except Exception as e:
         print(f"Error fetching Atlas page {url}: {e}")
-        return []
+        return {'urls': [], 'error': str(e)}
 
 
 def fetch_image_as_base64(image_url):
@@ -731,12 +750,17 @@ def generate_mcq_from_atlas(category_name, subcategory_name, gallery_url, num_qu
         }
 
     # Fetch images from the gallery
-    image_urls = fetch_atlas_page(gallery_url)
+    fetch_result = fetch_atlas_page(gallery_url)
+    image_urls = fetch_result['urls']
+    fetch_error = fetch_result['error']
 
     if not image_urls:
         # Fallback: generate text-based question describing what would be seen
         result = generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
-        result['debug_info'] = f"No images found on page: {gallery_url}"
+        if fetch_error:
+            result['debug_info'] = f"Failed to fetch images: {fetch_error} from {gallery_url}"
+        else:
+            result['debug_info'] = f"No images found on page: {gallery_url}"
         return result
 
     # Select a random image

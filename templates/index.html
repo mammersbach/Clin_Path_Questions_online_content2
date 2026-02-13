@@ -923,12 +923,12 @@
                             questionsHtml += '-'.repeat(40) + '\n\n';
 
                             // Answers - with reference and clickable link
-                            const isEclinpath = mcq.article_journal === 'eClinPath';
+                            const isEclinpath = mcq.article_journal && mcq.article_journal.includes('eClinPath');
                             let reference, refLabel, refUrl;
 
                             if (isEclinpath) {
-                                reference = `${mcq.article_title}. eClinPath, Cornell University.`;
-                                refLabel = 'eClinPath';
+                                reference = `${mcq.article_title}. ${mcq.article_journal}, Cornell University.`;
+                                refLabel = 'Source';
                                 refUrl = mcq.article_url;
                             } else {
                                 const firstAuthor = mcq.article_authors ? mcq.article_authors.split(',')[0].trim() : 'Unknown';
@@ -936,7 +936,7 @@
                                 const journalAbbrev = getJournalAbbrev(mcq.article_journal);
                                 const year = mcq.article_year ? mcq.article_year.match(/\d{4}/)?.[0] || mcq.article_year : '';
                                 reference = `${authorCitation} ${mcq.article_title}. ${journalAbbrev}. ${year}.`;
-                                refLabel = 'PubMed';
+                                refLabel = 'Source';
                                 refUrl = mcq.article_url;
                             }
 

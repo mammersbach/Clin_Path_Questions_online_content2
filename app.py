@@ -5,10 +5,13 @@ Extracts articles from veterinary clinical pathology journals and generates MCQs
 
 import os
 import random
+import re
+import base64
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, jsonify, request
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -441,6 +444,66 @@ ECLINPATH_TOPICS = {
 }
 
 
+# eClinPath Atlas catalog - image galleries for different pathology specialties
+ECLINPATH_ATLAS = {
+    "Hematology": {
+        "Blood Artifacts": "https://eclinpath.com/atlas/hematology/blood-artifacts/",
+        "Blood Smear Features": "https://eclinpath.com/atlas/hematology/blood-smear-features/",
+        "RBC Morphology": "https://eclinpath.com/atlas/hematology/erythrocytes/",
+        "WBC Features": "https://eclinpath.com/atlas/hematology/leukocytes/",
+        "Infectious Agents in Blood": "https://eclinpath.com/atlas/hematology/infectious-agents/",
+        "Leukemia": "https://eclinpath.com/atlas/hematology/leukemia/",
+        "Canine Blood": "https://eclinpath.com/atlas/hematology/canine-blood/",
+        "Feline Blood": "https://eclinpath.com/atlas/hematology/feline-blood/",
+        "Equine Blood": "https://eclinpath.com/atlas/hematology/equine-blood/",
+        "Ruminant Blood": "https://eclinpath.com/atlas/hematology/ruminant-blood/",
+    },
+    "Avian & Exotic Hematology": {
+        "Avian Blood": "https://eclinpath.com/atlas/hematology/avian-blood/",
+        "Reptile Blood": "https://eclinpath.com/atlas/hematology/reptile-blood/",
+        "Small Mammal Blood": "https://eclinpath.com/atlas/hematology/small-mammal-blood/",
+    },
+    "Cytology - Lymph Node": {
+        "Lymphoid Cells": "https://eclinpath.com/atlas/cytology/lymph-node/lymphoid-cells/",
+        "Lymph Node Neoplasia": "https://eclinpath.com/atlas/cytology/lymph-node/neoplasia/",
+        "Lymph Node Reactive": "https://eclinpath.com/atlas/cytology/lymph-node/reactive/",
+    },
+    "Cytology - Body Fluids": {
+        "Peritoneal Fluid": "https://eclinpath.com/atlas/cytology/body-fluids/peritoneal-fluid/",
+        "Pleural Fluid": "https://eclinpath.com/atlas/cytology/body-fluids/pleural-fluid/",
+        "Synovial Fluid": "https://eclinpath.com/atlas/cytology/body-fluids/synovial-fluid/",
+        "Cerebrospinal Fluid": "https://eclinpath.com/atlas/cytology/body-fluids/cerebrospinal-fluid/",
+    },
+    "Cytology - Organs": {
+        "Liver": "https://eclinpath.com/atlas/cytology/organs/liver/",
+        "Kidney": "https://eclinpath.com/atlas/cytology/organs/kidney/",
+        "Spleen": "https://eclinpath.com/atlas/cytology/organs/spleen/",
+        "Bone Marrow": "https://eclinpath.com/atlas/cytology/organs/bone-marrow/",
+        "Respiratory Tract": "https://eclinpath.com/atlas/cytology/organs/respiratory-tract/",
+    },
+    "Cytology - Cutaneous": {
+        "Skin Masses": "https://eclinpath.com/atlas/cytology/cutaneous/skin-masses/",
+        "Inflammatory Lesions": "https://eclinpath.com/atlas/cytology/cutaneous/inflammatory/",
+    },
+    "Cytology - Tumors": {
+        "Round Cell Tumors": "https://eclinpath.com/atlas/cytology/neoplasia/round-cell-tumors/",
+        "Epithelial Tumors": "https://eclinpath.com/atlas/cytology/neoplasia/epithelial-tumors/",
+        "Mesenchymal Tumors": "https://eclinpath.com/atlas/cytology/neoplasia/mesenchymal-tumors/",
+    },
+    "Urinalysis": {
+        "Urine Crystals": "https://eclinpath.com/atlas/urinalysis/crystals/",
+        "Urine Casts": "https://eclinpath.com/atlas/urinalysis/casts/",
+        "Urine Cells": "https://eclinpath.com/atlas/urinalysis/cells/",
+        "Urine Artifacts": "https://eclinpath.com/atlas/urinalysis/artifacts/",
+        "Urine Infectious Agents": "https://eclinpath.com/atlas/urinalysis/infectious-agents/",
+    },
+    "Miscellaneous": {
+        "Cytochemical Stains": "https://eclinpath.com/atlas/miscellaneous/cytochemical-stains/",
+        "Immunocytochemistry": "https://eclinpath.com/atlas/miscellaneous/immunocytochemistry/",
+    },
+}
+
+
 def generate_mcq_from_eclinpath(topic_name, subtopic_name, subtopic_url, num_questions=1):
     """Generate MCQ based on eClinPath veterinary clinical pathology topic"""
     api_key = os.getenv('ANTHROPIC_API_KEY')
@@ -541,6 +604,306 @@ EXPLANATION: [Detailed explanation of why this is correct and why other options 
             "article_journal": "eClinPath",
             "article_year": "",
             "questions": f"Error generating question: {str(e)}"
+        }
+
+
+def fetch_atlas_page(url):
+    """Fetch an eClinPath Atlas gallery page and extract image URLs"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://eclinpath.com/',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Strategy 1: Look for gallery anchor links with data-src or href
+        image_urls = []
+
+        # NextGEN Gallery - look for <a> tags with data-src in gallery
+        for link in soup.find_all('a', {'data-src': True}):
+            img_url = link.get('data-src')
+            if img_url and 'eclinpath.com' in img_url and any(ext in img_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                image_urls.append(img_url)
+
+        # Strategy 2: Look for <img> tags with data-src (lazy loading)
+        for img in soup.find_all('img', {'data-src': True}):
+            img_url = img.get('data-src')
+            if img_url and 'eclinpath.com' in img_url and any(ext in img_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                image_urls.append(img_url)
+
+        # Strategy 3: Standard <img> tags with src
+        if not image_urls:
+            for img in soup.find_all('img', src=True):
+                img_url = img.get('src')
+                if img_url and 'eclinpath.com' in img_url and any(ext in img_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                    # Exclude small icons and logos
+                    if 'icon' not in img_url.lower() and 'logo' not in img_url.lower():
+                        image_urls.append(img_url)
+
+        # Strategy 4: Look for srcset attributes (responsive images)
+        if not image_urls:
+            for img in soup.find_all('img', {'srcset': True}):
+                srcset = img.get('srcset')
+                # Parse srcset - format is "url1 1x, url2 2x" or "url1 100w, url2 200w"
+                urls = re.findall(r'(https?://[^\s,]+)', srcset)
+                for img_url in urls:
+                    if 'eclinpath.com' in img_url and any(ext in img_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                        image_urls.append(img_url)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_urls = []
+        for url in image_urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+
+        print(f"Found {len(unique_urls)} images on {url}")
+        return unique_urls
+
+    except Exception as e:
+        print(f"Error fetching Atlas page {url}: {e}")
+        return []
+
+
+def fetch_image_as_base64(image_url):
+    """Fetch an image and convert it to base64"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+            'Referer': 'https://eclinpath.com/',
+        }
+
+        response = requests.get(image_url, headers=headers, timeout=30)
+        response.raise_for_status()
+
+        # Detect image type from content-type or URL
+        content_type = response.headers.get('Content-Type', '')
+        if 'jpeg' in content_type or 'jpg' in image_url.lower():
+            media_type = 'image/jpeg'
+        elif 'png' in content_type or 'png' in image_url.lower():
+            media_type = 'image/png'
+        elif 'gif' in content_type or 'gif' in image_url.lower():
+            media_type = 'image/gif'
+        elif 'webp' in content_type or 'webp' in image_url.lower():
+            media_type = 'image/webp'
+        else:
+            media_type = 'image/jpeg'  # Default fallback
+
+        # Encode to base64
+        image_base64 = base64.b64encode(response.content).decode('utf-8')
+
+        return {
+            'base64': image_base64,
+            'media_type': media_type,
+            'url': image_url
+        }
+
+    except Exception as e:
+        print(f"Error fetching image {image_url}: {e}")
+        return None
+
+
+def generate_mcq_from_atlas(category_name, subcategory_name, gallery_url, num_questions=1):
+    """Generate image-based MCQ from eClinPath Atlas gallery"""
+    api_key = os.getenv('ANTHROPIC_API_KEY')
+
+    if not api_key:
+        return {
+            "article_title": f"{category_name} - {subcategory_name}",
+            "article_pmid": "",
+            "article_url": gallery_url,
+            "article_authors": "eClinPath Atlas, Cornell University",
+            "article_journal": "eClinPath Atlas",
+            "article_year": "",
+            "questions": "Error: ANTHROPIC_API_KEY environment variable is not set",
+            "has_image": False
+        }
+
+    # Fetch images from the gallery
+    image_urls = fetch_atlas_page(gallery_url)
+
+    if not image_urls:
+        # Fallback: generate text-based question describing what would be seen
+        return generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+
+    # Select a random image
+    selected_image_url = random.choice(image_urls)
+    image_data = fetch_image_as_base64(selected_image_url)
+
+    if not image_data:
+        # Fallback if image fetch fails
+        return generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""You are an expert in veterinary clinical pathology. Analyze this microscopy image from the eClinPath Atlas ({category_name} - {subcategory_name}) and generate {num_questions} multiple choice question(s) in the style of the ACVP Phase II Certifying Examination.
+
+IMPORTANT FORMAT RULES - follow the ACVP Phase II exam style exactly:
+- Questions can have 3, 4, or 5 answer choices (vary this naturally based on the question)
+- Use letter-period format for choices: A. B. C. D. E.
+- Questions should be concise and direct
+- Present a clinical scenario with species, signalment, and context for the image
+- Ask about interpretation of specific features visible in the image
+- The question should reference "the image shown" or "the photomicrograph shown"
+- Questions should test interpretation skills appropriate for Section 2 or Section 3 of the ACVP exam
+
+Example format:
+1. Blood smear from a 5-year-old Labrador Retriever with lethargy and pale mucous membranes.
+
+What is the morphologic feature indicated in the image?
+
+A. Howell-Jolly bodies
+B. Heinz bodies
+C. Basophilic stippling
+D. Acanthocytes
+
+Answer: A
+
+EXPLANATION: [Detailed explanation of the correct answer and why other options are incorrect]
+
+Now analyze the image and generate {num_questions} question(s):"""
+
+        # Create message with image
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": image_data['media_type'],
+                                "data": image_data['base64']
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        )
+
+        return {
+            "article_title": f"{category_name} - {subcategory_name}",
+            "article_pmid": "",
+            "article_url": gallery_url,
+            "article_authors": "eClinPath Atlas, Cornell University",
+            "article_journal": "eClinPath Atlas",
+            "article_year": "",
+            "questions": message.content[0].text,
+            "has_image": True,
+            "image_url": selected_image_url,
+            "image_base64": f"data:{image_data['media_type']};base64,{image_data['base64']}"
+        }
+
+    except Exception as e:
+        print(f"Error generating MCQ from Atlas with image: {e}")
+        return generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions, error=str(e))
+
+
+def generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions=1, error=None):
+    """Generate text-based Atlas MCQ when images can't be fetched"""
+    api_key = os.getenv('ANTHROPIC_API_KEY')
+
+    if not api_key:
+        error_msg = "ANTHROPIC_API_KEY environment variable is not set"
+        return {
+            "article_title": f"{category_name} - {subcategory_name}",
+            "article_pmid": "",
+            "article_url": gallery_url,
+            "article_authors": "eClinPath Atlas, Cornell University",
+            "article_journal": "eClinPath Atlas",
+            "article_year": "",
+            "questions": f"Error: {error_msg}",
+            "has_image": False
+        }
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""You are an expert in veterinary clinical pathology. Generate {num_questions} image-based multiple choice question(s) in the style of the ACVP Phase II Certifying Examination.
+
+Category: {category_name}
+Specific Topic: {subcategory_name}
+Reference: eClinPath Atlas - {gallery_url}
+
+IMPORTANT FORMAT RULES:
+- Questions can have 3, 4, or 5 answer choices (vary this naturally)
+- Use letter-period format for choices: A. B. C. D. E.
+- Start the question by describing what would be visible in a photomicrograph/image
+- For example: "Examine the photomicrograph shown. A blood smear from a 3-year-old horse reveals..."
+- Then ask about interpretation of specific features that would be visible
+- Questions should test interpretation skills appropriate for Section 2 or Section 3 of the ACVP exam
+
+Example format:
+1. Examine the photomicrograph shown. A blood smear from a 5-year-old cat with icterus reveals small, spherical, darkly staining structures within red blood cells.
+
+What are these structures most likely to represent?
+
+A. Howell-Jolly bodies
+B. Heinz bodies
+C. Basophilic stippling
+D. Hemotropic mycoplasma
+
+Answer: B
+
+EXPLANATION: [Detailed explanation]
+
+Generate {num_questions} question(s) about {subcategory_name}:"""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        questions_text = message.content[0].text
+        if error:
+            questions_text += f"\n\n(Note: Image could not be loaded due to: {error}. View images at: {gallery_url})"
+
+        return {
+            "article_title": f"{category_name} - {subcategory_name}",
+            "article_pmid": "",
+            "article_url": gallery_url,
+            "article_authors": "eClinPath Atlas, Cornell University",
+            "article_journal": "eClinPath Atlas",
+            "article_year": "",
+            "questions": questions_text,
+            "has_image": False
+        }
+
+    except Exception as e:
+        print(f"Error generating fallback Atlas MCQ: {e}")
+        return {
+            "article_title": f"{category_name} - {subcategory_name}",
+            "article_pmid": "",
+            "article_url": gallery_url,
+            "article_authors": "eClinPath Atlas, Cornell University",
+            "article_journal": "eClinPath Atlas",
+            "article_year": "",
+            "questions": f"Error generating question: {str(e)}",
+            "has_image": False
         }
 
 
@@ -696,6 +1059,71 @@ def generate_mcq_eclinpath():
                     "article_journal": "eClinPath",
                     "article_year": "",
                     "questions": f"Error generating question: {str(e)}"
+                })
+
+    return jsonify({
+        "success": True,
+        "mcq_results": mcq_results
+    })
+
+
+@app.route('/api/atlas-categories')
+def get_atlas_categories():
+    """API endpoint to get eClinPath Atlas categories"""
+    return jsonify({
+        "success": True,
+        "categories": ECLINPATH_ATLAS
+    })
+
+
+@app.route('/api/generate-mcq-atlas', methods=['POST'])
+def generate_mcq_atlas():
+    """API endpoint to generate image-based MCQs from eClinPath Atlas"""
+    data = request.json
+    num_questions = int(data.get('num_questions', 5))
+    selected_categories = data.get('categories', [])
+
+    if not selected_categories:
+        return jsonify({
+            "success": False,
+            "error": "No categories selected"
+        })
+
+    # Each item in selected_categories: {"category": "Hematology", "subcategory": "RBC Morphology", "url": "..."}
+    mcq_results = []
+    questions_per_category = max(1, num_questions // len(selected_categories))
+    extra = num_questions - (questions_per_category * len(selected_categories))
+
+    with ThreadPoolExecutor(max_workers=3) as executor:  # Limit to 3 for image processing
+        futures = {}
+        for i, cat in enumerate(selected_categories):
+            q_count = questions_per_category + (1 if i < extra else 0)
+            if q_count <= 0:
+                continue
+            future = executor.submit(
+                generate_mcq_from_atlas,
+                cat['category'],
+                cat['subcategory'],
+                cat['url'],
+                q_count
+            )
+            futures[future] = cat
+
+        for future in as_completed(futures):
+            try:
+                mcq = future.result(timeout=180)  # 3 minutes timeout for image processing
+                mcq_results.append(mcq)
+            except Exception as e:
+                cat = futures[future]
+                mcq_results.append({
+                    "article_title": f"{cat['category']} - {cat['subcategory']}",
+                    "article_pmid": "",
+                    "article_url": cat['url'],
+                    "article_authors": "eClinPath Atlas, Cornell University",
+                    "article_journal": "eClinPath Atlas",
+                    "article_year": "",
+                    "questions": f"Error generating question: {str(e)}",
+                    "has_image": False
                 })
 
     return jsonify({

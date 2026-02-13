@@ -491,11 +491,11 @@ ECLINPATH_ATLAS = {
         "Mesenchymal Tumors": "https://eclinpath.com/atlas/cytology/neoplasia/mesenchymal-tumors/",
     },
     "Urinalysis": {
-        "Urine Crystals": "https://eclinpath.com/atlas/urinalysis/crystals/",
-        "Urine Casts": "https://eclinpath.com/atlas/urinalysis/casts/",
-        "Urine Cells": "https://eclinpath.com/atlas/urinalysis/cells/",
-        "Urine Artifacts": "https://eclinpath.com/atlas/urinalysis/artifacts/",
-        "Urine Infectious Agents": "https://eclinpath.com/atlas/urinalysis/infectious-agents/",
+        "Urine Crystals": "https://eclinpath.com/atlas/urinalysis/urine-crystals/",
+        "Urine Casts": "https://eclinpath.com/atlas/urinalysis/urine-casts/",
+        "Urine Cells": "https://eclinpath.com/atlas/urinalysis/urine-cells/",
+        "Urine Artifacts": "https://eclinpath.com/atlas/urinalysis/urine-artifacts/",
+        "Urine Infectious Agents": "https://eclinpath.com/atlas/urinalysis/urine-infectious-agents/",
     },
     "Miscellaneous": {
         "Cytochemical Stains": "https://eclinpath.com/atlas/miscellaneous/cytochemical-stains/",
@@ -749,19 +749,11 @@ def generate_mcq_from_atlas(category_name, subcategory_name, gallery_url, num_qu
             "has_image": False
         }
 
-    # Fetch images from the gallery
-    fetch_result = fetch_atlas_page(gallery_url)
-    image_urls = fetch_result['urls']
-    fetch_error = fetch_result['error']
-
-    if not image_urls:
-        # Fallback: generate text-based question describing what would be seen
-        result = generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
-        if fetch_error:
-            result['debug_info'] = f"Failed to fetch images: {fetch_error} from {gallery_url}"
-        else:
-            result['debug_info'] = f"No images found on page: {gallery_url}"
-        return result
+    # eClinPath blocks automated access and uses JavaScript galleries
+    # Instead of fetching images, generate questions that reference the gallery
+    # Users can view images directly on eClinPath by clicking the gallery link
+    result = generate_atlas_fallback_mcq(category_name, subcategory_name, gallery_url, num_questions)
+    return result
 
     # Select a random image
     selected_image_url = random.choice(image_urls)
@@ -875,7 +867,9 @@ Category: {category_name}
 Specific Topic: {subcategory_name}
 Reference: eClinPath Atlas - {gallery_url}
 
-IMPORTANT FORMAT RULES:
+IMPORTANT: These questions reference images from the eClinPath Atlas. Students will view the actual images on eClinPath's website.
+
+FORMAT RULES:
 - Questions can have 3, 4, or 5 answer choices (vary this naturally)
 - Use letter-period format for choices: A. B. C. D. E.
 - Start the question by describing what would be visible in a photomicrograph/image
@@ -908,8 +902,8 @@ Generate {num_questions} question(s) about {subcategory_name}:"""
         )
 
         questions_text = message.content[0].text
-        if error:
-            questions_text += f"\n\n(Note: Image could not be loaded due to: {error}. View images at: {gallery_url})"
+        # Add note about viewing images on eClinPath
+        questions_text = f"📷 View reference images at: {gallery_url}\n\n" + questions_text
 
         return {
             "article_title": f"{category_name} - {subcategory_name}",
